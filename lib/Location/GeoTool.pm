@@ -10,7 +10,7 @@ use 5.008;
 use strict;
 use warnings;
 use vars qw($VERSION @ISA @EXPORT $AUTOLOAD %engines);
-$VERSION = 1.970200;
+$VERSION = 1.980000;
 
 ################################################################
 # Exports...for Legacy         #
@@ -343,7 +343,7 @@ sub coordformat
   ($ret,$pon) = &{$format_sub{$targ}->[1]}($dd, $mm, $ss, $targ, $pon);
 
   # Set Plus/Minus sign if wanted
-  if (($pon) && ($pon == 1)) 
+  if ((($pon) && ($pon == 1)) || ($s eq '-'))
   {
     $ret = $s.$ret;
   }

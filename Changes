@@ -23,3 +23,6 @@ Revision history for Perl extension Location::GeoTool.
         - Add Location::Object::Direction
         - Add Location::Object::Aura (shadowed)
         - Repeal description of old non-OO interface
+
+1.98  Thu Jal 1 18:57:00 JST 2004
+        - Bug fix for handling minus longitude/latitude
