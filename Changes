@@ -1,0 +1,10 @@
+Revision history for Perl extension Location::GeoTool.
+
+1.00  Tue Nov 18 19:24:32 2003
+	- original version; created by h2xs 1.23 with options
+		-A -X -n SpaceTag::GEO
+		Included function: 	coordformat dir_dist2point
+		                    point2dir_dist datumchange
+
+1.01  Thu Jan 15 21:59:44 2004
+	- Chane the name of module to: Location::GeoTool
