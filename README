@@ -1,4 +1,4 @@
-Location-GeoTool version 1.01
+Location-GeoTool version 1.97
 =========================
 
 This module is for one who wants to calcurate Geometric
@@ -8,6 +8,7 @@ This contains these functions:
   > Calculate the point from direction and distance
   > Calculate the direction and the distance of two points
   > Change the datum of coordinates
+  > Get Direction name string from degree
 Sorry, in this version can handle only two datum : WGS84 and TOKYO.
 It is welcome if you extend this module to datum you want.
 
@@ -26,7 +27,7 @@ Math::Trig
 
 COPYRIGHT AND LICENCE
 
-Copyright (C) 2003 by SpaceTag INC.,
+Copyright (C) 2003,2004 by SpaceTag INC.,
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself, either Perl version 5.8.0 or,

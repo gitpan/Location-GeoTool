@@ -1,7 +1,17 @@
 Changes
+GeoTool.xs
 Makefile.PL
 MANIFEST
+ppport.h
 README
-t/Location-GeoTool.t
+t/00_compile.t
+t/01_format.t
+t/02_datum.t
+t/03_direction.t
+t/04_dirstring.t
 lib/Location/GeoTool.pm
+lib/Location/GeoTool/Direction.pm
+lib/Location/GeoTool/Aura.pm
+lib/Location/GeoTool/Japanese.pod
+lib/Location/GeoTool/Direction/Japanese.pod
 META.yml                                 Module meta-data (added by MakeMaker)

@@ -8,3 +8,18 @@ Revision history for Perl extension Location::GeoTool.
 
 1.01  Thu Jan 15 21:59:44 2004
 	- Chane the name of module to: Location::GeoTool
+
+1.20  Thu Jun 3 01:34:44 JST 2004
+        - Bug fixed in coordformat (In Mapion format encoding)
+        - Add direction_string function
+
+1.95  Tue Jun 8 20:15:03 JST 2004
+        - Preview release of Ver. 2.0
+        - Add OO interface
+
+1.97  Tue Jun 22 18:49:03 JST 2004
+        - Second upload version to CPAN
+        - Change to XS module
+        - Add Location::Object::Direction
+        - Add Location::Object::Aura (shadowed)
+        - Repeal description of old non-OO interface
