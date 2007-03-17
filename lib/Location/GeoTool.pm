@@ -9,40 +9,8 @@ package Location::GeoTool;
 use 5.008;
 use strict;
 use warnings;
-use vars qw($VERSION @ISA @EXPORT $AUTOLOAD %engines);
-$VERSION = 1.980000;
-
-################################################################
-# Exports...for Legacy         #
-################################
-
-require Exporter;
-@ISA = qw(Exporter);
-@EXPORT = qw(
-  set_dirstr_master
-  direction_string
-  coordformat
-  dir_dist2point
-  point2dir_dist
-  vector2point
-  point2vector
-  datumchange
-  dir_dist2point_degree
-  point2dir_dist_degree
-  vector2point_degree
-  point2vector_degree
-  datumchange_degree
-  LG_WGS84
-  LG_TOKYO
-  LG_FMT
-  LG_FMT_MAPION
-  LG_FMT_DMSN
-  LG_FMT_SEC
-  LG_FMT_DEG
-  LG_FMT_RAD
-  LG_FMT_GPSONE
-  LG_FMT_ST
-);
+use vars qw($VERSION @ISA $AUTOLOAD %engines);
+$VERSION = 2.000000;
 
 ################################################################
 # Dependency                   #
@@ -52,14 +20,22 @@ use Math::Trig qw(asin tan);
 use Carp;
 require Location::GeoTool::Direction;
 require XSLoader;
-XSLoader::load('Location::GeoTool', $VERSION);
+
+my $enginename = 'pp';
+eval {
+    XSLoader::load('Location::GeoTool', $VERSION);
+    $enginename = 'xs';
+};
 
 ################################################################
 # Initialize                   #
 ################################
 
 __PACKAGE__->_make_accessors(
-    qw(def_datum def_format out_datum out_format cache_lat cache_long alt)
+    qw(
+        def_datum def_format out_datum out_format cache_lat cache_long alt
+        changeMyself enableWantarray defaultDatum defaultFormat
+    )
 );
 
 my $pi  = 4 * atan2(1,1); 								# PI
@@ -68,7 +44,6 @@ my $rd  = $pi / 180;      								# [radian/degree]
 ################################
 # Use pureperl? or XS?
 
-my $enginename = 'xs';
 $engines{'v2p'} = \&{"v2p_$enginename"};
 $engines{'p2v'} = \&{"p2v_$enginename"};
 $engines{'mol'} = \&{"molodensky_$enginename"};
@@ -96,21 +71,56 @@ my $def_dirstr = 'jp';
 # Format
 my %format_sub = map { $_ => [\&_def_fmt_in,\&_def_fmt_out]} ('mapion','dmsn','second','degree','radian','gpsone','spacetag');
 
+# Code
+my %code_sub;
+
 # Datum
 my %ellip = (
   'wgs84' => [6378137,(1 / 298.257223),0,0,0],
   'tokyo' => [6377397.155,(1 / 299.152813),148,-507,-681]
 );
 
+# Constants
+my $changeMyself    = 0;
+my $enableWantarray = 0;
+my $defaultDatum    = 'wgs84';
+my $defaultFormat   = 'gpsone';
+
 ################################################################
 # Class Methods                #
 ################################
+
+# Import : set plugin 
+sub import {
+    my $class = shift;
+    my $piname = '';
+    foreach my $plugin (@_) {
+        $piname = '';
+        foreach my $type ('','Plugin') {
+            my $name = __PACKAGE__.($type eq "" ? "" : "::$type")."::$plugin";
+            eval "require $name;";
+            unless ($@) {
+                $piname = $name;
+                last;
+            }
+        }
+        croak "Can't find plugin named $plugin" unless ($piname);
+        $piname->setup;
+    }
+}
 
 # Set new format you like
 sub set_original_format
 {
   my $class = shift;
   $format_sub{$_[0]} = $_[1];
+}
+
+# Set new code you like
+sub set_original_code
+{
+  my $class = shift;
+  $code_sub{$_[0]} = $_[1];
 }
 
 # Set new datum you like
@@ -143,6 +153,11 @@ sub set_original_dirstr
 # Constructor by 2D coordinates
 sub create_coord
 {
+  shift->set_coord(@_);
+}
+
+sub set_coord
+{
   my $self = shift;
   return $self->create_coord3d(@_[0..1],"+000000",@_[2..$#_]);
 }
@@ -151,12 +166,11 @@ sub create_coord
 sub create_coord3d
 {
   my $self = shift;
-  $self = $self->_new() unless (ref($self));
+  $self = $self->new() unless (ref($self));
   @{$self}{qw(lat long alt def_datum def_format source)} = @_;
   $self->{def_datum} ||= 'wgs84';
   $self->{def_format} ||= 'spacetag';
-  @{$self}{qw(out_datum out_format)} = @{$self}{qw(def_datum def_format)};
-  @{$self}{qw(cache_lat cache_long)} = ();
+  $self->_set_outsetting(@{$self}{qw(def_datum def_format)});
   return $self;
 }
 
@@ -166,7 +180,7 @@ sub array
 {
   my $self = shift;
   return ($self->{lat},$self->{long}) if (($self->def_datum eq $self->out_datum) && ($self->def_format eq $self->out_format));
-  ($self->{cache_lat},$self->{cache_long}) = $self->_exec_change($self->out_datum,$self->out_format,1) unless ($self->cache_lat && $self->cache_long);
+  ($self->{cache_lat},$self->{cache_long}) = $self->_exec_array($self->out_datum,$self->out_format) unless ($self->cache_lat && $self->cache_long);
   return ($self->cache_lat,$self->cache_long);
 }
 
@@ -222,13 +236,47 @@ sub AUTOLOAD
   {
     croak qq{Not support this format : $1 at this version of Location::GeoTool}
       unless ($format_sub{$1});
-    return $self->_exec_change($self->out_datum,$1,0);
+      my $out_format = $1;
+      no strict 'refs';
+      *{$method} = sub {
+         my $self = shift;
+         $self->_exec_change($self->out_datum,$out_format,@_);
+      };
+    return $self->$method(@_);
   }
   elsif ($method =~ /^datum_(\w+)$/)	# changing datum
   {
     croak qq{Not support this datum : $1 at this version of Location::GeoTool}
       unless ($ellip{$1});
-    return $self->_exec_change($1,$self->out_format,0);
+      my $out_datum = $1;
+      no strict 'refs';
+      *{$method} = sub {
+         my $self = shift;
+         $self->_exec_change($out_datum,$self->out_format,@_);
+      };
+    return $self->$method(@_);
+  }
+  elsif (($method =~ /^create_(\w+)$/) || ($method =~ /^set_(\w+)$/))
+  {
+    croak qq{Cannot create from this format : $1 at this version of Location::GeoTool}
+      unless ($code_sub{$1});
+      my $from_code = $code_sub{$1}->[0];
+      no strict 'refs';
+      *{$method} = sub {
+         $from_code->(@_);
+      };
+    return $self->$method(@_);
+  }
+  elsif ($method =~ /^get_(\w+)$/)
+  {
+    croak qq{Cannot get from this format : $1 at this version of Location::GeoTool}
+      unless ($code_sub{$1});
+      my $to_code = $code_sub{$1}->[1];
+      no strict 'refs';
+      *{$method} = sub {
+         $to_code->(@_);
+      };
+    return $self->$method(@_);
   }
   else
   {
@@ -241,19 +289,30 @@ sub AUTOLOAD
 ################################
 
 # Internal Constructor
-sub _new
+sub new
 {
-  return bless {},$_[0];
+    my $class = shift;
+    my $opt = $_[0] && ref($_[0]) eq 'HASH' ? shift : {} ;
+    return bless {
+        changeMyself    => $changeMyself,
+        enableWantarray => $enableWantarray,
+        defaultDatum    => $defaultDatum,
+        defaultFormat   => $defaultFormat,
+        %{$opt},
+    },$class;
 }
 
 # Construct accessor methods
 sub _make_accessors 
 {
-  my($class, @attr) = @_;
-  for my $attr (@attr) {
-    no strict 'refs';
-    *{"$class\::$attr"} = sub { shift->{$attr} };
-  }
+    my($class, @attr) = @_;
+    for my $attr (@attr) {
+        no strict 'refs';
+        *{"$class\::$attr"} = sub {
+            $_[0]->{$attr} = $_[1] if (defined($_[1]));
+            $_[0]->{$attr}
+        };
+    }
 }
 
 # Clone myself
@@ -274,32 +333,31 @@ sub _set_outsetting
 # They are in same function for future extension
 sub _exec_change
 {
-  my $self = shift;
-  my ($outdatum,$outformat,$wantarray) = @_;
-  $wantarray = defined($wantarray) ? $wantarray : wantarray;
+    my $self = shift;
+    my ($outdatum,$outformat) = @_;
 
-  if ($wantarray)
-  {
+    my $copy = $self->changeMyself ? $self : $self->_clone;
+    $copy->_set_outsetting($outdatum,$outformat);
+    return $copy->array if (wantarray && $self->enableWantarray);
+    return $copy;
+}
+
+sub _exec_array {
+    my $self = shift;
+
     my ($lat,$long) = @{$self}{qw(lat long)};
-    return () unless (defined($lat) && defined($long));
-    if ($self->def_datum eq $outdatum)
+    return unless (defined($lat) && defined($long));
+    if ($self->def_datum eq $self->out_datum)
     {
-      ($lat,$long) = map { coordformat($_,$self->def_format,$outformat) } ($lat,$long) if ($self->def_format ne $outformat);      
+        ($lat,$long) = map { coordformat($_,$self->def_format,$self->out_format) } ($lat,$long) if ($self->def_format ne $self->out_format);      
     }
     else
     {
-      ($lat,$long) = map { coordformat($_,$self->def_format,'degree') } ($lat,$long) unless ($self->def_format eq 'degree');
-      ($lat,$long) = datumchange_degree($lat,$long,"+000000",$self->def_datum,$outdatum);
-      ($lat,$long) = map { coordformat($_,'degree',$outformat) } ($lat,$long) unless ($outformat eq 'degree');
+        ($lat,$long) = map { coordformat($_,$self->def_format,'degree') } ($lat,$long) unless ($self->def_format eq 'degree');
+        ($lat,$long) = datumchange_degree($lat,$long,"+000000",$self->def_datum,$self->out_datum);
+        ($lat,$long) = map { coordformat($_,'degree',$self->out_format) } ($lat,$long) unless ($self->out_format eq 'degree');
     }
     return ($lat,$long);
-  }
-  else
-  {
-    my $copy = $self->_clone;
-    $copy->_set_outsetting($outdatum,$outformat);
-    return $copy;
-  }
 }
 
 ################################################################
@@ -337,7 +395,7 @@ sub direction_string
 sub coordformat
 {
   my ($coord,$farg,$targ,$pon) = @_[0..3];
-  my $s = ($coord =~ /^(\+|-)/) ? $1 : "+";
+  my $s = ($coord =~ s/^(\+|-)//) ? $1 : "+";
   my ($dd, $mm, $ss) = &{$format_sub{$farg}->[0]}($coord,$farg);
   my $ret;
   ($ret,$pon) = &{$format_sub{$targ}->[1]}($dd, $mm, $ss, $targ, $pon);
@@ -367,17 +425,17 @@ sub _def_fmt_in
   } 
   elsif ($farg eq 'mapion') 
   {
-    $coord =~ /(\d+)\/(\d+)\/(\d+)\.(\d+)$/;
+    $coord =~ /(\d+)\/(\d+)\/(\d+(\.\d+)?)$/;
     $dd = $1;
     $mm = $2;
-    $ss = $3+$4/1000;
+    $ss = $3;
   } 
   elsif ($farg eq 'dmsn')
   {
-    $coord =~ /(\d+)(\d{2})(\d{2})\.(\d+)$/;
+    $coord =~ /(\d+)(\d{2})(\d{2}(\.\d+)?)$/;
     $dd = $1;
     $mm = $2;
-    $ss = $3+$4/1000;
+    $ss = $3;
   } 
   elsif (($farg eq 'second') || ($farg eq 'degree') || ($farg eq 'radian'))
   {
@@ -400,10 +458,10 @@ sub _def_fmt_in
   } 
   elsif ($farg eq 'gpsone') 
   {
-    $coord =~ /(\d+)\.(\d+)\.(\d+)\.(\d+)$/;
+    $coord =~ /(\d+)\.(\d+)\.(\d+(\.\d+)?)$/;
     $dd = $1;
     $mm = $2;
-    $ss = $3+$4/1000;
+    $ss = $3;
   }
   $dd += 0;
 
@@ -652,52 +710,6 @@ sub molodensky_pp
   return (($b+$db)/$rd, ($l+$dl)/$rd, $h+$dh);
 }
 
-################################################################
-# Legacy                       #
-################################
-
-sub LG_WGS84{'wgs84'};
-sub LG_TOKYO{'tokyo'};
-sub LG_FMT{LG_FMT_ST()};
-sub LG_FMT_MAPION{'mapion'};
-sub LG_FMT_DMSN{'dmsn'};
-sub LG_FMT_SEC{'second'};
-sub LG_FMT_DEG{'degree'};
-sub LG_FMT_RAD{'radian'};
-sub LG_FMT_GPSONE{'gpsone'};
-sub LG_FMT_ST{'spacetag'};
-
-sub set_dirstr_master { set_original_dirstr(@_) }
-
-sub dir_dist2point{vector2point(@_)}
-sub dir_dist2point_degree{vector2point_degree(@_)}
-sub vector2point
-{
-  my ($lat,$lon) = map {coordformat($_,LG_FMT,LG_FMT_DEG)} @_[0..1];
-  my ($dir,$dis,$datum) = @_[2..4];					# Direction,Distance,Datum
-  my ($rlat,$rlon) = dir_dist2point_degree($lat,$lon,$dir,$dis,$datum);
-  return map {coordformat($_,LG_FMT_DEG,LG_FMT)} ($rlat,$rlon);
-}
-
-sub point2dir_dist{point2vector(@_)}
-sub point2dir_dist_degree{point2vector_degree(@_)}
-sub point2vector
-{
-  my ($lat,$lon,$tlat,$tlon) = map {coordformat($_,LG_FMT,LG_FMT_DEG)} @_[0..3];
-  return point2dir_dist_degree($lat,$lon,$tlat,$tlon,$_[4]);
-}
-
-sub datumchange
-{
-  my ($lat,$lon,$h,$from,$to) = @_;
-  ($lat,$lon) = map {coordformat($_,LG_FMT,LG_FMT_DEG)} ($lat,$lon);
-  ($lat,$lon,$h) = datumchange_degree($lat,$lon,$h,$from,$to);
-  ($lat,$lon) = map {coordformat($_,LG_FMT_DEG,LG_FMT)} ($lat,$lon);
-  $h = sprintf("%+06d",int($h*100));
-  return ($lat,$lon,$h);
-}
-
-
 
 1;
 __END__
@@ -710,7 +722,13 @@ Location::GeoTool - Perl extension for Geometry processing
 
   use Location::GeoTool;
   
+  # New constructor (Options can be set)
+  my $oGeo = Location::GeoTool->new({changeMyself => 0,enableWantarray => 0});
+  $oGeo->set_coord('35.39.24.491','139.40.10.478','tokyo','gpsone');
+
+  # Old constructor
   my $oGeo = Location::GeoTool->create_coord('35.39.24.491','139.40.10.478','tokyo','gpsone');
+
   my @mapion = $oGeo->format_mapion->array;
    # => ("35/39/24.491","139/40/10.478")
   my $oGeoW = $oGeo->datum_wgs84;
@@ -721,11 +739,63 @@ Location::GeoTool - Perl extension for Geometry processing
 
 =head1 DESCRIPTION
 
-=head2 Constructor (create_coord)
+=head2 Constructor
+
+=head3 new
+
+  my $obj = Location::GeoTool->new($option_hashref);
+
+Creates Location::GeoTool object.
+With this constructor, you can set some options.
+
+=over 4
+
+=item enableWantarray
+
+With this option is 1 (default 0), you can get coordinates array from
+"format_foo" or "datum_foo" type method in array context.
+
+For example,
+
+  # When enableWantarray = 0
+  $obj_new = $obj->format_degree;           # object
+  ($lat,$long) = $obj->format_degree;       # object,undef
+  ($lat,$long) = $obj->format_degree->array;# latitude,longitude
+  
+  # When enableWantarray = 1
+  $obj_new = $obj->format_degree;           # object
+  ($lat,$long) = $obj->format_degree;       # latitude,longitude
+  ($lat,$long) = $obj->format_degree->array;# latitude,longitude
+
+=item changeMyself
+
+With this option is 1 (default 0), "format_foo" or "datum_foo" type 
+method won't make new object but change the original object itself.
+
+For example,
+
+  # When changeMyself = 0
+  $obj_new = $obj->datum_tokyo;           
+  # $obj_new != $obj 
+  # $obj not change.
+  
+  # When changeMyself = 1
+  $obj_new = $obj->datum_tokyo;
+  # $obj_new == $obj 
+  # $obj changes.
+
+=back
+
+With B<new> constructor, you can't set coordinates data.
+You must set them by using B<set_coord> method.
+
+=head3 create_coord
 
   my $obj = Location::GeoTool->create_coord($lat,$long,$datum,$format);
 
 Creates Location::GeoTool object.
+This method can not only create object but set coordinates, but cannot
+set options. 
 
   $lat    : Latitude
   $long   : Longitude
@@ -748,7 +818,34 @@ Give format by string shown below:
   Second           (ssssss.sss...) : 'second'
   Radian                           : 'radian'
 
+=head2 Methods for setting/changing latitude/longitude
+
+=head3 set_coord
+
+  $obj->set_coord($lat,$long,$datum,$format);
+
+This method to be used when setting/changing object's cordinates data.
+Argument is same with B<create_coord>.
+
+=head2 Methods for setting/changing option 
+
+=head3 enableWantarray
+
+=head3 changeMyself
+
+  $obj->enableWantarray(1);
+  $obj->changeMyself(1);
+
+This method to be used when setting/changing object's option value.
+Option's meaning is same with B<new> method's option.
+
 =head2 Methods for getting latitude/longitude
+
+=head3 array
+
+=head3 lat
+
+=head3 long
 
 Return the latitude/longitude value of object.
 
@@ -759,7 +856,13 @@ Return the latitude/longitude value of object.
 
 =head2 Methods for changing datum/format
 
+=head3 format_B<foo>
+
+=head3 datum_B<foo>
+
 Create a new object which has new datum/format setting.
+(With changeMyself option on, never create new object but change
+original object)
 
   $newobj = $obj->datum_wgs84;
   $newobj = $obj->format_mapion;
@@ -781,10 +884,10 @@ All methods belong to this category are shown below:
 
 =head2 Methods for create Location::GeoTool::Direction object
 
-Create a object of Location::GeoTool::Direction, which is handling
+Create a object of B<Location::GeoTool::Direction>, which is handling
 direction/distance data.
 Parent object is automatically set to Start-point of 
-Location::GeoTool::Direction object.
+B<Location::GeoTool::Direction> object.
 
   my $dirobj = $locobj->direction_point('40/36/14.307','141/01/33.022','tokyo','mapion');
   my ($dir,$dist) = ($dirobj->direction,$dirobj->distance);
@@ -818,6 +921,17 @@ Unit of distance is [m].
 
 Create Location::GeoTool::Direction object by giving End-point.
 
+=head1 PLUGINS
+
+If you want to use plugin of this module, you use this module as below:
+
+  use Location::GeoTool qw/Locapoint GridLocator/;
+
+By above, you can use B<Location::GeoTool::Plugin::Locapoint> and 
+B<Location::GeoTool::Plugin::GridLocator> plugin.
+
+These two plugins are combined with this distribution.
+
 =head1 DEPENDENCIES
 
 Math::Trig
@@ -834,15 +948,15 @@ http://member.nifty.ne.jp/Nowral/02_DATUM/Molodensky.html
 
 Thanks for these site.
 
-Support this module in Kokogiko web site : http://kokogiko.net/
+Support this module in Kokogiko! web site : http://kokogiko.net/
 
 =head1 AUTHOR
 
-OHTSUKA Ko-hei, E<lt>kotsuka@spacetag.jpE<gt>
+OHTSUKA Ko-hei, E<lt>nene@kokogiko.netE<gt>
 
 =head1 COPYRIGHT AND LICENSE
 
-Copyright (C) 2003,2004 by SpaceTag INC.,
+Copyright (C) 2003-2007 by Kokogiko!,
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself, either Perl version 5.8.1 or,

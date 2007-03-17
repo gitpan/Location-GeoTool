@@ -26,3 +26,16 @@ Revision history for Perl extension Location::GeoTool.
 
 1.98  Thu Jal 1 18:57:00 JST 2004
         - Bug fix for handling minus longitude/latitude
+
+1.99  Fri Jan 15 23:51:00 JST 2005
+        - Aloow little different of format in parsing coordinates
+
+2.00  Sat Mar 17 11:44:00 JST 2007
+        - Bug Fix for gpsone/mapion format at negative coordinates
+        - Abolish legacy non-OO method
+        - Add plugin mechanism
+        - Change Makefile.PL to be able to choose XS version or Pureperl version
+        - Combine Plugin::GridLocator and Plugin::Locapoint to same package
+        - Some logic changes to make performance faster 
+
+

@@ -10,7 +10,7 @@ use 5.008;
 use strict;
 use warnings;
 use vars qw($VERSION);
-$VERSION = 0.96;
+$VERSION = 0.97;
 
 use Location::GeoTool;
 use Carp;
@@ -54,7 +54,7 @@ sub set_vector
   my $fdatum = $fp->out_datum;
   my $fformat = $fp->out_format;
 
-  my ($tlat,$tlong) = vector2point_degree($flat,$flong,$dir,$dist,$fdatum);
+  my ($tlat,$tlong) = Location::GeoTool::vector2point_degree($flat,$flong,$dir,$dist,$fdatum);
   
   my $to_point = Location::GeoTool->create_coord($tlat,$tlong,$fdatum,'degree');
   my $meth = "format_$fformat";
@@ -85,7 +85,7 @@ sub set_topoint
   my $meth = "datum_$fdatum";
   my ($tlat,$tlong) = $self->{'to_point'}->$meth->format_degree->array;
 
-  my ($dir,$dist) = point2vector_degree($flat,$flong,$tlat,$tlong,$fdatum);
+  my ($dir,$dist) = Location::GeoTool::point2vector_degree($flat,$flong,$tlat,$tlong,$fdatum);
 
   $dir = _regular_dir($dir);
 
@@ -128,7 +128,7 @@ sub reverse
 # Return the name of direction
 sub dir_string
 {
-  return direction_string(_regular_dir($_[0]->direction),$_[1] || 16,$_[2]);
+  return Location::GeoTool::direction_string(_regular_dir($_[0]->direction),$_[1] || 16,$_[2]);
 }
 
 # Normalize direction 0-360
@@ -253,11 +253,11 @@ Support this module in Kokogiko web site : http://kokogiko.net/
 
 =head1 AUTHOR
 
-OHTSUKA Ko-hei, E<lt>kotsuka@spacetag.jpE<gt>
+OHTSUKA Ko-hei, E<lt>nene@kokogiko.netE<gt>
 
 =head1 COPYRIGHT AND LICENSE
 
-Copyright (C) 2004 by SpaceTag INC.,
+Copyright (C) 2004-2007 by Kokogiko!,
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself, either Perl version 5.8.1 or,
